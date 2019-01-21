@@ -349,6 +349,68 @@ int rtk_hal_set_transparent(struct ra_switch_ioctl_data *data)
 	return 0;
 }
 
+int rtk_hal_vlan_switch_sync(struct ra_switch_ioctl_data *data)
+{
+	rtk_vlan_cfg_t vlan;//, vlan2;
+	//rtk_api_ret_t ret;
+	//int i;
+	rtk_port_t port;
+
+	memset(&vlan, 0x00, sizeof(rtk_vlan_cfg_t));
+	RTK_PORTMASK_CLEAR(vlan.mbr);
+	RTK_PORTMASK_CLEAR(vlan.untag);
+	rtk_vlan_get(4094, &vlan);
+
+	data->port_map = 0;
+	RTK_PORTMASK_SCAN(vlan.mbr, port) {
+		data->port_map = data->port_map | (1 << port);
+	}
+
+#if 0
+	memset(&vlan2, 0x00, sizeof(rtk_vlan_cfg_t));
+	RTK_PORTMASK_CLEAR(vlan2.mbr);
+	RTK_PORTMASK_CLEAR(vlan2.untag);
+	rtk_vlan_get(data->vid, &vlan2);
+
+	RTK_PORTMASK_SCAN(vlan.mbr, port) {
+		RTK_PORTMASK_PORT_SET(vlan2.mbr, port);
+		RTK_PORTMASK_PORT_CLEAR(vlan2.untag, port);
+		rtk_vlan_portPvid_set(port, 4094, 0);
+	}
+
+	ret = rtk_vlan_set(data->vid, &vlan2);
+#endif
+
+	return 0;
+}
+
+int rtk_hal_vlan_switch_unsync(struct ra_switch_ioctl_data *data)
+{
+	rtk_vlan_cfg_t vlan, vlan2;
+	rtk_api_ret_t ret;
+	int i;
+	rtk_port_t port;
+
+	memset(&vlan, 0x00, sizeof(rtk_vlan_cfg_t));
+	RTK_PORTMASK_CLEAR(vlan.mbr);
+	RTK_PORTMASK_CLEAR(vlan.untag);
+	rtk_vlan_get(4094, &vlan);
+
+	memset(&vlan2, 0x00, sizeof(rtk_vlan_cfg_t));
+	RTK_PORTMASK_CLEAR(vlan2.mbr);
+	RTK_PORTMASK_CLEAR(vlan2.untag);
+	rtk_vlan_get(data->vid, &vlan2);
+
+	RTK_PORTMASK_SCAN(vlan.mbr, port) {
+		RTK_PORTMASK_PORT_CLEAR(vlan2.mbr, port);
+		RTK_PORTMASK_PORT_CLEAR(vlan2.untag, port);
+	}
+
+	ret = rtk_vlan_set(data->vid, &vlan2);
+
+	return 0;
+}
+
 //UBNT_Andrew
 
 int rtk_hal_set_ingress_rate(struct ra_switch_ioctl_data *data)

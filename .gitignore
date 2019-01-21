@@ -117,11 +117,8 @@ signing_key.priv
 signing_key.x509
 x509.genkey
 
-<<<<<<< HEAD
 # Kconfig presets
 all.config
 
 # Kdevelop4
 *.kdev4
-
-uImage

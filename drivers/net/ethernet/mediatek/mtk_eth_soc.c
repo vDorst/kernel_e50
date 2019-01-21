@@ -1541,6 +1541,7 @@ static int fe_do_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	case RAETH_SW_IOCTL:
 		ret = copy_from_user(&ioctl_data, ifr->ifr_data, sizeof(ioctl_data));
 		sw_ioctl(&ioctl_data);
+		copy_to_user(ifr->ifr_data, &ioctl_data, sizeof(ioctl_data));
 		return 0;
 		break;
 #endif		
@@ -1825,9 +1826,7 @@ static int fe_probe(struct platform_device *pdev)
 		netdev->features |= NETIF_F_HW_VLAN_CTAG_FILTER;
 
 #ifdef CONFIG_DTB_UBNT_ER
-	//UBNT - Change interface name to itf0
-		strcpy(netdev->name, "itf0");
-	//UBNT
+		strcpy(netdev->name, "switch0");
 #endif	
 
 	priv = netdev_priv(netdev);

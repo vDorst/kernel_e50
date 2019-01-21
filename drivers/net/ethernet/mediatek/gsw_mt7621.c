@@ -823,6 +823,15 @@ void sw_ioctl(struct ra_switch_ioctl_data *ioctl_data)
 		rtk_hal_dump_table();
 		break;
 
+
+	case SW_IOCTL_VLAN_SWITCH_SYNC:
+		rtk_hal_vlan_switch_sync(ioctl_data);
+		break;
+
+	case SW_IOCTL_VLAN_SWITCH_UNSYNC:
+		rtk_hal_vlan_switch_unsync(ioctl_data);
+		break;
+
 	case SW_IOCTL_GET_PHY_STATUS:
 		rtk_hal_get_phy_status(ioctl_data);
 		break;

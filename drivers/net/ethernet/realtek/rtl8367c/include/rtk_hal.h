@@ -19,6 +19,8 @@ int rtk_hal_set_svlan(struct ra_switch_ioctl_data *data);
 int rtk_hal_set_svlan_default(struct ra_switch_ioctl_data *data);
 int rtk_hal_set_svlan_untag(struct ra_switch_ioctl_data *data);
 int rtk_hal_set_svlan_unmatch(struct ra_switch_ioctl_data *data);
+int rtk_hal_vlan_switch_sync(struct ra_switch_ioctl_data *data);
+int rtk_hal_vlan_switch_unsync(struct ra_switch_ioctl_data *data);
 //UBNT_Andrew
 int rtk_hal_set_ingress_rate(struct ra_switch_ioctl_data *data);
 int rtk_hal_set_egress_rate(struct ra_switch_ioctl_data *data);
