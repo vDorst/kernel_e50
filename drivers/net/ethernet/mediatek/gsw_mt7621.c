@@ -415,7 +415,7 @@ static void mt7621_hw_init(struct mt7620_gsw *gsw, struct device_node *np)
 	usleep_range(100, 110);
 
 	/* (GE1, Force 1000M/FD, FC ON) */
-	sys_reg_write((fe_base + 0x10000) + 0x100, 0x2105e33b);
+	sys_reg_write((fe_base + 0x10000) + 0x100, 0x2305e33b);
 	mt7530_mdio_w32(gsw, 0x3600, 0x5e33b);
 	reg_value = mt7530_mdio_r32(gsw, 0x3600);
 	/* (GE2, Link down) */
