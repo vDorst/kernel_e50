@@ -48,7 +48,7 @@
 
 #include "mtk_offload.h"
 
-#define	MAX_RX_LENGTH		1536
+#define	MAX_RX_LENGTH		2048
 #define FE_RX_ETH_HLEN		(VLAN_ETH_HLEN + VLAN_HLEN + ETH_FCS_LEN)
 #define FE_RX_HLEN		(NET_SKB_PAD + FE_RX_ETH_HLEN + NET_IP_ALIGN)
 #define DMA_DUMMY_DESC		0xffffffff
@@ -78,8 +78,11 @@ extern struct mt7620_gsw *gsw_mt7621;
 extern u32 _mt7620_mii_read(struct mt7620_gsw * gsw, int phy_addr, int phy_reg);
 extern u32 _mt7620_mii_write(struct mt7620_gsw * gsw, u32 phy_addr, u32 phy_register, u32 write_data);
 
-u32 switched_ports_to_kernel = 0;
-EXPORT_SYMBOL(switched_ports_to_kernel);
+u32 switched_ports = 0;
+u8 vlan_aware_enabled = 0;
+EXPORT_SYMBOL(switched_ports);
+EXPORT_SYMBOL(vlan_aware_enabled);
+
 int upd_eth_stats(int port, u32 rx_pkt, u32 rx_byte, u32 rx_err, u32 rx_drop,
 	u32 tx_pkt, u32 tx_byte, u32 tx_err, u32 tx_drop)
 {
@@ -111,7 +114,7 @@ int upd_eth_stats(int port, u32 rx_pkt, u32 rx_byte, u32 rx_err, u32 rx_drop,
 		}
 	}
 
-	//printk(KERN_ERR "%s: switched_ports_to_kernel = %d\nport_stats.rx_bytes = %d, port_stats.rx_packets = %d\nport_stats.tx_bytes = %d, port_stats.tx_packets = %d\n\n", __func__, switched_ports_to_kernel, port_stats.rx_bytes, port_stats.rx_packets, port_stats.tx_bytes);
+	//printk(KERN_ERR "%s: switched_ports = %d\nport_stats.rx_bytes = %d, port_stats.rx_packets = %d\nport_stats.tx_bytes = %d, port_stats.tx_packets = %d\n\n", __func__, switched_ports, port_stats.rx_bytes, port_stats.rx_packets, port_stats.tx_bytes);
 
 	return 0;
 	#else
@@ -133,6 +136,8 @@ int upd_eth_stats(int port, u32 rx_pkt, u32 rx_byte, u32 rx_err, u32 rx_drop,
 	stats->tx_packets += tx_pkt;
 	stats->tx_bytes += tx_byte;
 	u64_stats_update_end(&stats->syncp);
+
+	dev_put(dev);
 
 	return 0;
 	#endif
@@ -178,7 +183,7 @@ EXPORT_SYMBOL(dev_raether);
 
 int mt7621_is_switch0_member(u32 port)
 {
-	if ((1 << port) & switched_ports_to_kernel)
+	if ((1 << port) & switched_ports)
 		return 1;
 	return 0;
 }
@@ -944,6 +949,13 @@ static int fe_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		return NETDEV_TX_BUSY;
 	}
 
+	if (vlan_aware_enabled == 1 && 
+		skb_vlan_tag_get_id(skb) == 0xffe && 
+		skb_vlan_tagged_multi(skb) == true) {
+           // Remove VID 0xffe when vlan_aware is enabled and skb has VID 0xffe.
+           skb_vlan_pop(skb);
+	}
+
 	if (fe_tx_map_dma(skb, dev, tx_num, ring) < 0) {
 		stats->tx_dropped++;
 	} else {
@@ -967,6 +979,7 @@ static int fe_poll_rx(struct napi_struct *napi, int budget,
 	u8 *data, *new_data;
 	struct fe_rx_dma *rxd, trxd;
 	int done = 0, pad;
+	u16 vlan_tci = 0;
 
 	if (netdev->features & NETIF_F_RXCSUM)
 		checksum_bit = soc->checksum_bit;
@@ -1023,6 +1036,19 @@ static int fe_poll_rx(struct napi_struct *napi, int budget,
 			skb->ip_summed = CHECKSUM_UNNECESSARY;
 		else
 			skb_checksum_none_assert(skb);
+
+		if(vlan_aware_enabled == 1) {
+			__vlan_get_tag(skb, &vlan_tci);
+			if (vlan_tci > 0 && vlan_tci < PORT_VID_BASE(ubnt_bd_g.type)) {
+				// Insert VID 0xffe when
+				// 1. vlan_aware is enabled and
+				// 2. VID of RX packet isn't in range of reserverd VID
+				skb = vlan_insert_tag(skb, htons(ETH_P_8021Q), 0xffe);
+				if (!skb)
+					goto release_desc;
+			}
+		}
+				
 		skb->protocol = eth_type_trans(skb, netdev);
 
 #ifdef CONFIG_NET_MEDIATEK_OFFLOAD
@@ -1695,7 +1721,7 @@ fe_flow_offload(enum flow_offload_type type, struct flow_offload *flow,
 
 	ret = mtk_flow_offload(priv, type, flow, src, dest);
 	if(ret == -EINVAL) {
-		printk(KERN_ERR "%s: mtk_flow_offload return error\n", __func__);
+		//printk(KERN_ERR "%s: mtk_flow_offload return error\n", __func__);
 		return ret;
 	}
 
@@ -1826,7 +1852,7 @@ static int fe_probe(struct platform_device *pdev)
 		netdev->features |= NETIF_F_HW_VLAN_CTAG_FILTER;
 
 #ifdef CONFIG_DTB_UBNT_ER
-		strcpy(netdev->name, "switch0");
+		strcpy(netdev->name, "itf0");
 #endif	
 
 	priv = netdev_priv(netdev);

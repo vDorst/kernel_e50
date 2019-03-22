@@ -9,12 +9,39 @@
 	compatible = "mediatek,mt7621-soc";
 
 	cpus {
+		#address-cells = <1>;
+		#size-cells = <0>;
 		cpu@0 {
+			device_type = "cpu";
 			compatible = "mips,mips1004Kc";
+			reg = <0>;
+			next-level-cache = <&L2>;
 		};
 
 		cpu@1 {
+			device_type = "cpu";
 			compatible = "mips,mips1004Kc";
+			reg = <1>;
+			next-level-cache = <&L2>;
+		};
+
+		cpu@2 {
+			device_type = "cpu";
+			compatible = "mips,mips1004Kc";
+			reg = <2>;
+			next-level-cache = <&L2>;
+		};
+
+		cpu@3 {
+			device_type = "cpu";
+			compatible = "mips,mips1004Kc";
+			reg = <3>;
+			next-level-cache = <&L2>;
+		};
+
+		L2: l2-cache {
+			compatible = "cache";
+			cache-level = <2>;
 		};
 	};
 
@@ -327,17 +354,39 @@
 	};
 
 	xhci: xhci@1E1C0000 {
+		#address-cells = <1>;
+		#size-cells = <0>;
 		status = "okay";
 
 		compatible = "mediatek,mt8173-xhci";
 		reg = <0x1e1c0000 0x1000
 		       0x1e1d0700 0x0100>;
+		reg-names = "mac", "ippc";
 
 		clocks = <&sysclock>;
 		clock-names = "sys_ck";
 
 		interrupt-parent = <&gic>;
 		interrupts = <GIC_SHARED 22 IRQ_TYPE_LEVEL_HIGH>;
+
+		/*
+		 * Port 1 of both hubs is one usb slot and referenced here.
+		 * The binding doesn't allow to address individual hubs.
+		 * hub 1 - port 1 is ehci and ohci, hub 2 - port 1 is xhci.
+		 */
+		xhci_ehci_port1: port@1 {
+			reg = <1>;
+			#trigger-source-cells = <0>;
+		};
+
+		/*
+		 * Only the second usb hub has a second port. That port serves
+		 * ehci and ohci.
+		 */
+		ehci_port2: port@2 {
+			reg = <2>;
+			#trigger-source-cells = <0>;
+		};
 	};
 
 	gic: interrupt-controller@1fbc0000 {

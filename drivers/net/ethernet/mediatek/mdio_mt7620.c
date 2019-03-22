@@ -168,3 +168,189 @@ void mt7620_mdio_link_adjust(struct fe_priv *priv, int port)
 				(priv->phy->duplex[port] == DUPLEX_FULL));
 	mt7620_handle_carrier(priv);
 }
+
+#ifdef CONFIG_DTB_UBNT_ER
+DEFINE_MUTEX(mdio_nest_lock);
+EXPORT_SYMBOL(mdio_nest_lock);
+extern struct net_device *dev_raether;
+extern struct mt7620_gsw *gsw_mt7621;
+
+u32 mii_mgr_read(u32 phy_addr, u32 phy_register, u32 *read_data)
+{
+	struct fe_priv *priv;
+	bool has_lock = true;
+
+	if (!dev_raether)
+		has_lock = false;
+	priv = (struct fe_priv *)netdev_priv(dev_raether);
+	if (!priv->mii_bus)
+		has_lock = false;
+
+	if (has_lock)
+		mutex_lock(&priv->mii_bus->mdio_lock);
+	if (phy_addr == 0x1f)
+		*read_data = mt7530_mdio_r32(gsw_mt7621, phy_register);
+	else
+		*read_data = _mt7620_mii_read(gsw_mt7621, phy_addr, phy_register);
+	if (has_lock)
+		mutex_unlock(&priv->mii_bus->mdio_lock);
+
+	return 0;
+}
+EXPORT_SYMBOL(mii_mgr_read);
+
+u32 mii_mgr_write(u32 phy_addr, u32 phy_register, u32 write_data)
+{
+	u32 ret = 0;
+	struct fe_priv *priv;
+	bool has_lock = true;
+
+	if (!dev_raether)
+		has_lock = false;
+	priv = (struct fe_priv *)netdev_priv(dev_raether);
+	if (!priv->mii_bus)
+		has_lock = false;
+
+	if (has_lock)
+		mutex_lock(&priv->mii_bus->mdio_lock);
+	if (phy_addr == 0x1f)
+		mt7530_mdio_w32(gsw_mt7621, phy_register, write_data);
+	else
+		ret = _mt7620_mii_write(gsw_mt7621, phy_addr, phy_register, write_data);
+	if (has_lock)
+		mutex_unlock(&priv->mii_bus->mdio_lock);
+
+	return ret;
+}
+EXPORT_SYMBOL(mii_mgr_write);
+
+#define ESW_PHY_POLLING		0x0000
+#define PHY_CONTROL_0		0x0004
+#define MDIO_PHY_CONTROL_0	((fe_base + 0x10000) + PHY_CONTROL_0)
+#define enable_mdio(x)
+extern void __iomem *fe_base;
+
+u32 _mt7620_mdio_cl45_set_address(u32 port_num, u32 dev_addr, u32 reg_addr)
+{
+	u32 rc = 0;
+	unsigned long t_start = jiffies;
+	u32 data = 0;
+
+	enable_mdio(1);
+
+	while (1) {
+		if (!(sys_reg_read(MDIO_PHY_CONTROL_0) & (0x1 << 31))) {
+			break;
+		} else if (time_after(jiffies, t_start + 5 * HZ)) {
+			enable_mdio(0);
+			pr_err("\n MDIO Read operation is ongoing !!\n");
+			return rc;
+		}
+	}
+	data =
+	    (dev_addr << 25) | (port_num << 20) | (0x00 << 18) | (0x00 << 16) |
+	    reg_addr;
+	sys_reg_write(MDIO_PHY_CONTROL_0, data);
+	sys_reg_write(MDIO_PHY_CONTROL_0, (data | (1 << 31)));
+
+	t_start = jiffies;
+	while (1) {
+		if (!(sys_reg_read(MDIO_PHY_CONTROL_0) & (0x1 << 31))) {
+			enable_mdio(0);
+			return 1;
+		} else if (time_after(jiffies, t_start + 5 * HZ)) {
+			enable_mdio(0);
+			pr_err("\n MDIO Write operation Time Out\n");
+			return 0;
+		}
+	}
+}
+
+u32 _mt7620_mdio_read_cl45(u32 port_num, u32 dev_addr, u32 reg_addr,
+		u32 *read_data)
+{
+	u32 status = 0;
+	u32 rc = 0;
+	unsigned long t_start = jiffies;
+	u32 data = 0;
+
+	/* set address first */
+	_mt7620_mdio_cl45_set_address(port_num, dev_addr, reg_addr);
+	/* udelay(10); */
+
+	enable_mdio(1);
+
+	while (1) {
+		if (!(sys_reg_read(MDIO_PHY_CONTROL_0) & (0x1 << 31))) {
+			break;
+		} else if (time_after(jiffies, t_start + 5 * HZ)) {
+			enable_mdio(0);
+			pr_err("\n MDIO Read operation is ongoing !!\n");
+			return rc;
+		}
+	}
+	data =
+	    (dev_addr << 25) | (port_num << 20) | (0x03 << 18) | (0x00 << 16) |
+	    reg_addr;
+	sys_reg_write(MDIO_PHY_CONTROL_0, data);
+	sys_reg_write(MDIO_PHY_CONTROL_0, (data | (1 << 31)));
+	t_start = jiffies;
+	while (1) {
+		if (!(sys_reg_read(MDIO_PHY_CONTROL_0) & (0x1 << 31))) {
+			*read_data =
+			    (sys_reg_read(MDIO_PHY_CONTROL_0) & 0x0000FFFF);
+			enable_mdio(0);
+			return 1;
+		} else if (time_after(jiffies, t_start + 5 * HZ)) {
+			enable_mdio(0);
+			pr_err
+			    ("\n MDIO Read operation Time Out!!\n");
+			return 0;
+		}
+		status = sys_reg_read(MDIO_PHY_CONTROL_0);
+	}
+}
+
+u32 _mt7620_mdio_write_cl45(u32 port_num, u32 dev_addr, u32 reg_addr,
+		u32 write_data)
+{
+	u32 rc = 0;
+	unsigned long t_start = jiffies;
+	u32 data = 0;
+
+	/* set address first */
+	_mt7620_mdio_cl45_set_address(port_num, dev_addr, reg_addr);
+	/* udelay(10); */
+
+	enable_mdio(1);
+	while (1) {
+		if (!(sys_reg_read(MDIO_PHY_CONTROL_0) & (0x1 << 31))) {
+			break;
+		} else if (time_after(jiffies, t_start + 5 * HZ)) {
+			enable_mdio(0);
+			pr_err("\n MDIO Read operation is ongoing !!\n");
+			return rc;
+		}
+	}
+
+	data =
+	    (dev_addr << 25) | (port_num << 20) | (0x01 << 18) | (0x00 << 16) |
+	    write_data;
+	sys_reg_write(MDIO_PHY_CONTROL_0, data);
+	sys_reg_write(MDIO_PHY_CONTROL_0, (data | (1 << 31)));
+
+	t_start = jiffies;
+
+	while (1) {
+		if (!(sys_reg_read(MDIO_PHY_CONTROL_0) & (0x1 << 31))) {
+			enable_mdio(0);
+			return 1;
+		} else if (time_after(jiffies, t_start + 5 * HZ)) {
+			enable_mdio(0);
+			pr_err("\n MDIO Write operation Time Out\n");
+			return 0;
+		}
+	}
+}
+#endif /* CONFIG_DTB_UBNT_ER */
+

@@ -11,6 +11,7 @@
  */
 
 #include "mtk_offload.h"
+#include <linux/ubntw.h>
 
 #define INVALID	0
 #define UNBIND	1
@@ -44,6 +45,8 @@ EXPORT_SYMBOL(ag_map);
 #define PORT_NUM 6
 #define AG_INPUT_NUM PORT_NUM
 #define AG_OUTPUT_NUM (PORT_NUM + 1)
+
+extern struct ubnt_bd_t ubnt_bd_g;
 
 uint8_t ag_map[AG_INPUT_NUM][AG_OUTPUT_NUM] = {
 	{ 1,  2,  3,  4,  5,  6,  7},
@@ -87,8 +90,8 @@ mtk_foe_prepare_v4(struct mtk_foe_entry *entry,
 	u32 src_port = 0;
 	u32 dst_port = 0;
 
-	src_port = src->vlan_id - PORT_VID_BASE;
-	dst_port = dest->vlan_id - PORT_VID_BASE;
+	src_port = src->vlan_id - PORT_VID_BASE(ubnt_bd_g.type);
+	dst_port = dest->vlan_id - PORT_VID_BASE(ubnt_bd_g.type);
 	if (tuple->l4proto == IPPROTO_UDP)
 		entry->ipv4_hnapt.bfib1.udp = 1;
 
@@ -164,6 +167,14 @@ mtk_foe_set_mac(struct mtk_foe_entry *entry, u8 *smac, u8 *dmac)
 	entry->ipv4_hnapt.smac_lo = swab16(*((u16*) &smac[4]));
 }
 
+static int
+mtk_check_entry_available(struct mtk_eth *eth, u32 hash)
+{
+	struct mtk_foe_entry entry = ((struct mtk_foe_entry *)eth->foe_table)[hash];
+
+	return (entry.bfib1.state == BIND)? 0:1;
+}
+
 static void
 mtk_foe_write(struct mtk_eth *eth, u32 hash,
 	      struct mtk_foe_entry *entry)
@@ -195,6 +206,12 @@ int mtk_flow_offload(struct mtk_eth *eth,
 	if (otuple->l4proto != IPPROTO_TCP && otuple->l4proto != IPPROTO_UDP)
 		return -EINVAL;
 
+	if (type == FLOW_OFFLOAD_DEL) {
+		flow = NULL;
+		synchronize_rcu();
+		return 0;
+	}
+
 	switch (otuple->l3proto) {
 	case AF_INET:
 		if (mtk_foe_prepare_v4(&orig, otuple, rtuple, src, dest) ||
@@ -212,24 +229,24 @@ int mtk_flow_offload(struct mtk_eth *eth,
 		return -EINVAL;
 	}
 
-	if (type == FLOW_OFFLOAD_DEL) {
-		orig.bfib1.state = INVALID;
-		reply.bfib1.state = INVALID;
-		flow = NULL;
-		goto write;
+	/* Two-way hash: when hash collision occurs, the hash value will be shifted to the next position. */
+	if (!mtk_check_entry_available(eth, ohash)){
+		if (!mtk_check_entry_available(eth, ohash + 1))
+			return -EINVAL;
+                ohash += 1;
+        }
+        if (!mtk_check_entry_available(eth, rhash)){
+		if (!mtk_check_entry_available(eth, rhash + 1))
+                        return -EINVAL;
+                rhash += 1;
 	}
 
 	mtk_foe_set_mac(&orig, dest->eth_src, dest->eth_dest);
 	mtk_foe_set_mac(&reply, src->eth_src, src->eth_dest);
-
-write:
 	mtk_foe_write(eth, ohash, &orig);
 	mtk_foe_write(eth, rhash, &reply);
 	rcu_assign_pointer(eth->foe_flow_table[ohash], flow);
 	rcu_assign_pointer(eth->foe_flow_table[rhash], flow);
-
-	if (type == FLOW_OFFLOAD_DEL)
-		synchronize_rcu();
 
 	return 0;
 }

@@ -30,4 +30,10 @@
 			reg = <0x740000 0x1f4c0000>;
 		};
 	};
+	fragment@3 {
+		target-path = "/xhci@1E1C0000";
+		__overlay__ {
+			status = "okay";
+		};
+	};
 };

@@ -33,6 +33,7 @@ flow_offload_fill_dir(struct flow_offload *flow, struct nf_conn *ct,
 	struct nf_conntrack_tuple *ctt = &ct->tuplehash[dir].tuple;
 	struct dst_entry *dst = route->tuple[dir].dst;
 	struct rtable *rt;
+	struct net_device *dev;
 
 	ft->dir = dir;
 
@@ -62,11 +63,20 @@ flow_offload_fill_dir(struct flow_offload *flow, struct nf_conn *ct,
 	ft->iifidx = route->tuple[dir].ifindex;
 	ft->oifidx = route->tuple[!dir].ifindex;
 	if(dir == FLOW_OFFLOAD_DIR_REPLY) {
-		dst->dev = dev_get_by_index(&init_net, ft->iifidx);
-		rt = (struct rtable *)dst;
+		dev = dev_get_by_index(&init_net, ft->iifidx);
+		if (!dev)
+			goto fill_dir_exit;
 
-		ip_fib_find_gateway(&rt->rt_gateway, dst->dev);
+		if (dst->dev != dev) {
+			dev_put(dst->dev);
+			dst->dev = dev;
+			rt = (struct rtable *)dst;
+			ip_fib_find_gateway(&rt->rt_gateway, dst->dev);
+		} else {
+			dev_put(dev);
+		}
 	}
+fill_dir_exit:	
 	ft->dst_cache = dst;
 }
 

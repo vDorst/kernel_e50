@@ -125,6 +125,7 @@ static irqreturn_t gsw_interrupt_mt7621(int irq, void *_priv)
 					else
 						netif_carrier_off(dev);
 				}
+				dev_put(dev);
 			}
 		}
 
@@ -186,34 +187,34 @@ irqreturn_t rtl8367_gsw_interrupt(int irq, void *resv)
 
 	return IRQ_HANDLED;
 }
+#endif
 
-//UBNT
-
-static void mt7530_phy_setting(void)
+#ifdef CONFIG_DTB_UBNT_ER
+static void mt7530_phy_setting(struct mt7620_gsw *gsw)
 {
 	u32 i;
 	u32 reg_value;
 
 	for (i = 0; i < 5; i++) {
 		/* Disable EEE */
-		mii_mgr_write_cl45(i, 0x7, 0x3c, 0);
+		_mt7620_mdio_write_cl45(i, 0x7, 0x3c, 0);
 		/* Enable HW auto downshift */
-		mii_mgr_write(i, 31, 0x1);
-		mii_mgr_read(i, 0x14, &reg_value);
+		_mt7620_mii_write(gsw, i, 31, 0x1);
+		reg_value = _mt7620_mii_read(gsw, i, 0x14);
 		reg_value |= (1 << 4);
-		mii_mgr_write(i, 0x14, reg_value);
+		_mt7620_mii_write(gsw, i, 0x14, reg_value);
 		/* Increase SlvDPSready time */
-		mii_mgr_write(i, 31, 0x52b5);
-		mii_mgr_write(i, 16, 0xafae);
-		mii_mgr_write(i, 18, 0x2f);
-		mii_mgr_write(i, 16, 0x8fae);
+		_mt7620_mii_write(gsw, i, 31, 0x52b5);
+		_mt7620_mii_write(gsw, i, 16, 0xafae);
+		_mt7620_mii_write(gsw, i, 18, 0x2f);
+		_mt7620_mii_write(gsw, i, 16, 0x8fae);
 		/* Incease post_update_timer */
-		mii_mgr_write(i, 31, 0x3);
-		mii_mgr_write(i, 17, 0x4b);
+		_mt7620_mii_write(gsw, i, 31, 0x3);
+		_mt7620_mii_write(gsw, i, 17, 0x4b);
 		/* Adjust 100_mse_threshold */
-		mii_mgr_write_cl45(i, 0x1e, 0x123, 0xffff);
+		_mt7620_mdio_write_cl45(i, 0x1e, 0x123, 0xffff);
 		/* Disable mcc */
-		mii_mgr_write_cl45(i, 0x1e, 0xa6, 0x300);
+		_mt7620_mdio_write_cl45(i, 0x1e, 0xa6, 0x300);
 	}
 }
 #endif
@@ -267,8 +268,8 @@ static void mt7621_hw_init(struct mt7620_gsw *gsw, struct device_node *np)
 	/* (GE2, Link down) */
 	mtk_switch_w32(gsw, 0x8000, GSW_REG_MAC_P1_MCR);
 
-	/* Set switch max RX frame length to 2k */
-	mt7530_mdio_w32(gsw, GSW_REG_GMACCR, 0x3F0B);
+	/* Set switch max RX frame length to 15k */
+	mt7530_mdio_w32(gsw, GSW_REG_GMACCR, 0x3F3F);
 
 	/* UBNT: Step1: Set 0x7804[13]=1 and 0x7804[6]=1 (you can refer to attached file that I set 0x7804[13]=1 in setup_internal_gsw() )" */
 	/* Enable Port 6, P5 as GMAC5, P5 disable */
@@ -395,7 +396,7 @@ static void mt7621_hw_init(struct mt7620_gsw *gsw, struct device_node *np)
 	/* Wait for Switch Reset Completed */
 	for (i = 0; i < 100; i++) {
 		mdelay(10);
-		mii_mgr_read(31, 0x7800, &reg_value);
+		reg_value = mt7530_mdio_r32(gsw, 0x7800);
 		if (reg_value != 0) {
 			pr_info("MT7530 Reset Completed!!\n");
 			break;
@@ -406,21 +407,24 @@ static void mt7621_hw_init(struct mt7620_gsw *gsw, struct device_node *np)
 
 	for (i = 0; i <= 4; i++) {
 		/*turn off PHY */
-		mii_mgr_read(i, 0x0, &reg_value);
+		reg_value = _mt7620_mii_read(gsw, i, 0x0);
 		reg_value |= (0x1 << 11);
-		mii_mgr_write(i, 0x0, reg_value);
+		_mt7620_mii_write(gsw, i, 0x0, reg_value);
 	}
-	mii_mgr_write(31, 0x7000, 0x3);	/* reset switch */
+	mt7530_mdio_w32(gsw, 0x7000, 0x3);	/* reset switch */
 	usleep_range(100, 110);
 
 	/* (GE1, Force 1000M/FD, FC ON) */
 	sys_reg_write((fe_base + 0x10000) + 0x100, 0x2105e33b);
-	mii_mgr_write(31, 0x3600, 0x5e33b);
-	mii_mgr_read(31, 0x3600, &reg_value);
+	mt7530_mdio_w32(gsw, 0x3600, 0x5e33b);
+	reg_value = mt7530_mdio_r32(gsw, 0x3600);
 	/* (GE2, Link down) */
 	sys_reg_write((fe_base + 0x10000) + 0x200, 0x00008000);
 
-	mii_mgr_read(31, 0x7804, &reg_value);
+	/* Set switch max RX frame length to 15k */
+	mt7530_mdio_w32(gsw, GSW_REG_GMACCR, 0x3F3F);
+
+	reg_value = mt7530_mdio_r32(gsw, 0x7804);
 	reg_value &= ~(1 << 8);	/* Enable Port 6 */
 	reg_value |= (1 << 6);	/* Disable Port 5 */
 	reg_value |= (1 << 13);	/* Port 5 as GMAC, no Internal PHY */
@@ -434,9 +438,9 @@ static void mt7621_hw_init(struct mt7620_gsw *gsw, struct device_node *np)
 	/*GMAC2= RGMII mode */
 	reg_bit_zero((fe_sysctl_base + 0x14), 14, 2);
 	/* MT7530 P5 Force 1000 */
-	mii_mgr_write(31, 0x3500, 0x5e33b);
+	mt7530_mdio_w32(gsw, 0x3500, 0x5e33b);
 	/* (GE2, Force 1000) */
-	sys_reg_write((fe_base + 0x10000) + 0x200, 0x2105e33b);
+	sys_reg_write((fe_base + 0x10000) + 0x200, 0x2305e33b);
 	reg_value &= ~(1 << 6);	/* enable MT7530 P5 */
 	reg_value |= ((1 << 7) | (1 << 13) | (1 << 16));
 
@@ -446,8 +450,8 @@ static void mt7621_hw_init(struct mt7620_gsw *gsw, struct device_node *np)
 	reg_value &= ~(1 << 5);
 	reg_value |= (1 << 16);	/* change HW-TRAP */
 	pr_info("change HW-TRAP to 0x%x\n", reg_value);
-	mii_mgr_write(31, 0x7804, reg_value);
-	mii_mgr_read(31, 0x7800, &reg_value);
+	mt7530_mdio_w32(gsw, 0x7804, reg_value);
+	reg_value = mt7530_mdio_r32(gsw, 0x7800);
 	reg_value = (reg_value >> 9) & 0x3;
 	if (reg_value == 0x3) {	/* 25Mhz Xtal */
 		xtal_mode = 1;
@@ -455,41 +459,41 @@ static void mt7621_hw_init(struct mt7620_gsw *gsw, struct device_node *np)
 	} else if (reg_value == 0x2) {	/* 40Mhz */
 		xtal_mode = 2;
 		/* disable MT7530 core clock */
-		mii_mgr_write_cl45(0, 0x1f, 0x410, 0x0);
+		_mt7620_mdio_write_cl45(0, 0x1f, 0x410, 0x0);
 
-		mii_mgr_write_cl45(0, 0x1f, 0x40d, 0x2020);
-		mii_mgr_write_cl45(0, 0x1f, 0x40e, 0x119);
-		mii_mgr_write_cl45(0, 0x1f, 0x40d, 0x2820);
+		_mt7620_mdio_write_cl45(0, 0x1f, 0x40d, 0x2020);
+		_mt7620_mdio_write_cl45(0, 0x1f, 0x40e, 0x119);
+		_mt7620_mdio_write_cl45(0, 0x1f, 0x40d, 0x2820);
 		usleep_range(20, 30);	/* suggest by CD */
-		mii_mgr_write_cl45(0, 0x1f, 0x410, 0x1);
+		_mt7620_mdio_write_cl45(0, 0x1f, 0x410, 0x1);
 	} else {
 		xtal_mode = 3;
 	 /*TODO*/}
 
 	/* set MT7530 central align */
-	mii_mgr_read(31, 0x7830, &reg_value);
+	reg_value = mt7530_mdio_r32(gsw, 0x7830);
 	reg_value &= ~1;
 	reg_value |= 1 << 1;
-	mii_mgr_write(31, 0x7830, reg_value);
+	mt7530_mdio_w32(gsw, 0x7830, reg_value);
 
-	mii_mgr_read(31, 0x7a40, &reg_value);
+	reg_value = mt7530_mdio_r32(gsw, 0x7a40);
 	reg_value &= ~(1 << 30);
-	mii_mgr_write(31, 0x7a40, reg_value);
+	mt7530_mdio_w32(gsw, 0x7a40, reg_value);
 
 	reg_value = 0x855;
-	mii_mgr_write(31, 0x7a78, reg_value);
+	mt7530_mdio_w32(gsw, 0x7a78, reg_value);
 
-	mii_mgr_write(31, 0x7b00, 0x104);	/* delay setting for 10/1000M */
-	mii_mgr_write(31, 0x7b04, 0x10);	/* delay setting for 10/1000M */
+	mt7530_mdio_w32(gsw, 0x7b00, 0x104);	/* delay setting for 10/1000M */
+	mt7530_mdio_w32(gsw, 0x7b04, 0x10);	/* delay setting for 10/1000M */
 
 	/*Tx Driving */
-	mii_mgr_write(31, 0x7a54, 0x88);	/* lower GE1 driving */
-	mii_mgr_write(31, 0x7a5c, 0x88);	/* lower GE1 driving */
-	mii_mgr_write(31, 0x7a64, 0x88);	/* lower GE1 driving */
-	mii_mgr_write(31, 0x7a6c, 0x88);	/* lower GE1 driving */
-	mii_mgr_write(31, 0x7a74, 0x88);	/* lower GE1 driving */
-	mii_mgr_write(31, 0x7a7c, 0x88);	/* lower GE1 driving */
-	mii_mgr_write(31, 0x7810, 0x11);	/* lower GE2 driving */
+	mt7530_mdio_w32(gsw, 0x7a54, 0x88);	/* lower GE1 driving */
+	mt7530_mdio_w32(gsw, 0x7a5c, 0x88);	/* lower GE1 driving */
+	mt7530_mdio_w32(gsw, 0x7a64, 0x88);	/* lower GE1 driving */
+	mt7530_mdio_w32(gsw, 0x7a6c, 0x88);	/* lower GE1 driving */
+	mt7530_mdio_w32(gsw, 0x7a74, 0x88);	/* lower GE1 driving */
+	mt7530_mdio_w32(gsw, 0x7a7c, 0x88);	/* lower GE1 driving */
+	mt7530_mdio_w32(gsw, 0x7810, 0x11);	/* lower GE2 driving */
 	/*Set MT7623 TX Driving */
 	sys_reg_write((fe_base + 0x10000) + 0x0354, 0x88);
 	sys_reg_write((fe_base + 0x10000) + 0x035c, 0x88);
@@ -512,17 +516,17 @@ static void mt7621_hw_init(struct mt7620_gsw *gsw, struct device_node *np)
 	sys_reg_write((fe_base + 0x10000) + 0x0370, 0x55);
 	sys_reg_write((fe_base + 0x10000) + 0x0378, 0x855);
 
-	mt7530_phy_setting();
+	mt7530_phy_setting(gsw);
 	for (i = 0; i <= 4; i++) {
 		/*turn on PHY */
-		mii_mgr_read(i, 0x0, &reg_value);
+		reg_value = _mt7620_mii_read(gsw, i, 0x0);
 		reg_value &= ~(0x1 << 11);
-		mii_mgr_write(i, 0x0, reg_value);
+		_mt7620_mii_write(gsw, i, 0x0, reg_value);
 	}
 
-	mii_mgr_read(31, 0x7808, &reg_value);
+	reg_value = mt7530_mdio_r32(gsw, 0x7808);
 	reg_value |= (3 << 16);	/* Enable INTR */
-	mii_mgr_write(31, 0x7808, reg_value);
+	mt7530_mdio_w32(gsw, 0x7808, reg_value);
 
 	iounmap(gpio_base_virt);
 #endif
@@ -580,44 +584,51 @@ int mtk_gsw_init(struct fe_priv *priv)
 	mt7530_mdio_w32(gsw_mt7621, 0x2610, 0x81000000);
 
 	/*set PVID */
-	mt7530_mdio_w32(gsw_mt7621, 0x2014, PORT_VID_BASE + 0x10000);	/* port0 */
-	mt7530_mdio_w32(gsw_mt7621, 0x2114, PORT_VID_BASE + 0x10001);	/* port1 */
-	mt7530_mdio_w32(gsw_mt7621, 0x2214, PORT_VID_BASE + 0x10002);	/* port2 */
-	mt7530_mdio_w32(gsw_mt7621, 0x2314, PORT_VID_BASE + 0x10003);	/* port3 */
-	mt7530_mdio_w32(gsw_mt7621, 0x2414, PORT_VID_BASE + 0x10004);	/* port4 */
-	mt7530_mdio_w32(gsw_mt7621, 0x2514, PORT_VID_BASE + 0x1000A);	/* port5 */
-	//mt7530_mdio_w32(gsw_mt7621, 0x2614, PORT_VID_BASE + 0x1000A);	/* port6 */
+	mt7530_mdio_w32(gsw_mt7621, 0x2014, PORT_VID_BASE(ubnt_bd_g.type) + 0x10000);	/* port0 */
+	mt7530_mdio_w32(gsw_mt7621, 0x2114, PORT_VID_BASE(ubnt_bd_g.type) + 0x10001);	/* port1 */
+	mt7530_mdio_w32(gsw_mt7621, 0x2214, PORT_VID_BASE(ubnt_bd_g.type) + 0x10002);	/* port2 */
+	mt7530_mdio_w32(gsw_mt7621, 0x2314, PORT_VID_BASE(ubnt_bd_g.type) + 0x10003);	/* port3 */
+	mt7530_mdio_w32(gsw_mt7621, 0x2414, PORT_VID_BASE(ubnt_bd_g.type) + 0x10004);	/* port4 */
+	//mt7530_mdio_w32(gsw_mt7621, 0x2514, SWITCH_VID + 0x10000);	/* P5 */
+	//mt7530_mdio_w32(gsw_mt7621, 0x2614, PORT_VID_BASE(ubnt_bd_g.type) + 0x1000A);	/* CPU */
 
 	/*VLAN member */
 	mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40410001);
-	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE + 0x80001000);
+	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE(ubnt_bd_g.type) + 0x80001000);
 
 	mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40420001);
-	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE + 0x80001001);
+	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE(ubnt_bd_g.type) + 0x80001001);
 
 	mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40440001);
-	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE + 0x80001002);
+	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE(ubnt_bd_g.type) + 0x80001002);
 
 	mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40480001);
-	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE + 0x80001003);
+	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE(ubnt_bd_g.type) + 0x80001003);
 
 	mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40500001);
-	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE + 0x80001004);
+	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE(ubnt_bd_g.type) + 0x80001004);
 
 	mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40600001);
-	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE + 0x80001005);
+	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE(ubnt_bd_g.type) + 0x80001005);
+		
+	if(strcmp(ubnt_bd_g.type, "e55") == 0) {
+		mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40600001);
+		mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE(ubnt_bd_g.type) + 0x80001006);
+
+		mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40600001);
+		mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE(ubnt_bd_g.type) + 0x80001007);
+
+		mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40600001);
+		mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE(ubnt_bd_g.type) + 0x80001008);
+
+		mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40600001);
+		mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE(ubnt_bd_g.type) + 0x80001009);
+	}
+	//mt7530_mdio_w32(gsw_mt7621, 0x2514, PORT_VID_BASE(ubnt_bd_g.type) + 0x1000A);	/* P5 */
+	//mt7530_mdio_w32(gsw_mt7621, 0x2614, PORT_VID_BASE(ubnt_bd_g.type) + 0x1000A);	/* CPU */
 
 	mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40600001);
-	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE + 0x80001006);
-
-	mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40600001);
-	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE + 0x80001007);
-
-	mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40600001);
-	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE + 0x80001008);
-
-	mt7530_mdio_w32(gsw_mt7621, 0x94, 0x40600001);
-	mt7530_mdio_w32(gsw_mt7621, 0x90, PORT_VID_BASE + 0x80001009);
+	mt7530_mdio_w32(gsw_mt7621, 0x90, 0x80001ffe);
 #endif /* CONFIG_DTB_UBNT_ER */
 
 #ifdef CONFIG_NET_REALTEK_RTL8367_PLUGIN
@@ -681,7 +692,7 @@ int init_rtl8367s(void)
 	//RTK_PORTMASK_PORT_SET(pVlanCfg.untag, EXT_PORT0);
 	RTK_PORTMASK_PORT_SET(pVlanCfg.untag, UTP_PORT0);
 	//pVlanCfg.fid_msti = 0xF;
-	rtk_vlan_set(PORT_VID_BASE+5, &pVlanCfg);
+	rtk_vlan_set(PORT_VID_BASE(ubnt_bd_g.type)+5, &pVlanCfg);
 
 	memset(&pVlanCfg, 0, sizeof(rtk_vlan_cfg_t));
 	RTK_PORTMASK_PORT_SET(pVlanCfg.mbr, EXT_PORT0);
@@ -689,7 +700,7 @@ int init_rtl8367s(void)
 	//RTK_PORTMASK_PORT_SET(pVlanCfg.untag, EXT_PORT0);
 	RTK_PORTMASK_PORT_SET(pVlanCfg.untag, UTP_PORT1);
 	//pVlanCfg.fid_msti = 0xF;
-	rtk_vlan_set(PORT_VID_BASE+6, &pVlanCfg);
+	rtk_vlan_set(PORT_VID_BASE(ubnt_bd_g.type)+6, &pVlanCfg);
 
 	memset(&pVlanCfg, 0, sizeof(rtk_vlan_cfg_t));
 	RTK_PORTMASK_PORT_SET(pVlanCfg.mbr, EXT_PORT0);
@@ -697,7 +708,7 @@ int init_rtl8367s(void)
 	//RTK_PORTMASK_PORT_SET(pVlanCfg.untag, EXT_PORT0);
 	RTK_PORTMASK_PORT_SET(pVlanCfg.untag, UTP_PORT2);
 	//pVlanCfg.fid_msti = 0xF;
-	rtk_vlan_set(PORT_VID_BASE+7, &pVlanCfg);
+	rtk_vlan_set(PORT_VID_BASE(ubnt_bd_g.type)+7, &pVlanCfg);
 
 	memset(&pVlanCfg, 0, sizeof(rtk_vlan_cfg_t));
 	RTK_PORTMASK_PORT_SET(pVlanCfg.mbr, EXT_PORT0);
@@ -705,7 +716,7 @@ int init_rtl8367s(void)
 	//RTK_PORTMASK_PORT_SET(pVlanCfg.untag, EXT_PORT0);
 	RTK_PORTMASK_PORT_SET(pVlanCfg.untag, UTP_PORT3);
 	//pVlanCfg.fid_msti = 0xF;
-	rtk_vlan_set(PORT_VID_BASE+8, &pVlanCfg);
+	rtk_vlan_set(PORT_VID_BASE(ubnt_bd_g.type)+8, &pVlanCfg);
 
 	memset(&pVlanCfg, 0, sizeof(rtk_vlan_cfg_t));
 	RTK_PORTMASK_PORT_SET(pVlanCfg.mbr, EXT_PORT0);
@@ -713,18 +724,18 @@ int init_rtl8367s(void)
 	//RTK_PORTMASK_PORT_SET(pVlanCfg.untag, EXT_PORT0);
 	RTK_PORTMASK_PORT_SET(pVlanCfg.untag, UTP_PORT4);
 	//pVlanCfg.fid_msti = 0xF;
-	rtk_vlan_set(PORT_VID_BASE+9, &pVlanCfg);
+	rtk_vlan_set(PORT_VID_BASE(ubnt_bd_g.type)+9, &pVlanCfg);
 
 	memset(&pVlanCfg, 0, sizeof(rtk_vlan_cfg_t));
 	rtk_vlan_set(1, &pVlanCfg);
 	rtk_vlan_set(2, &pVlanCfg);
 
-	rtk_vlan_portPvid_set(UTP_PORT0, PORT_VID_BASE+5, 0);
-	rtk_vlan_portPvid_set(UTP_PORT1, PORT_VID_BASE+6, 0);
-	rtk_vlan_portPvid_set(UTP_PORT2, PORT_VID_BASE+7, 0);
-	rtk_vlan_portPvid_set(UTP_PORT3, PORT_VID_BASE+8, 0);
-	rtk_vlan_portPvid_set(UTP_PORT4, PORT_VID_BASE+9, 0);
-	//rtk_vlan_portPvid_set(EXT_PORT0, PORT_VID_BASE+10, 0);
+	rtk_vlan_portPvid_set(UTP_PORT0, PORT_VID_BASE(ubnt_bd_g.type)+5, 0);
+	rtk_vlan_portPvid_set(UTP_PORT1, PORT_VID_BASE(ubnt_bd_g.type)+6, 0);
+	rtk_vlan_portPvid_set(UTP_PORT2, PORT_VID_BASE(ubnt_bd_g.type)+7, 0);
+	rtk_vlan_portPvid_set(UTP_PORT3, PORT_VID_BASE(ubnt_bd_g.type)+8, 0);
+	rtk_vlan_portPvid_set(UTP_PORT4, PORT_VID_BASE(ubnt_bd_g.type)+9, 0);
+	//rtk_vlan_portPvid_set(EXT_PORT0, PORT_VID_BASE(ubnt_bd_g.type)+10, 0);
 
 	rtk_vlan_portIgrFilterEnable_set(UTP_PORT0, DISABLED);
 	rtk_vlan_portIgrFilterEnable_set(UTP_PORT1, DISABLED);
@@ -821,15 +832,6 @@ void sw_ioctl(struct ra_switch_ioctl_data *ioctl_data)
 
 	case SW_IOCTL_DUMP_TABLE:
 		rtk_hal_dump_table();
-		break;
-
-
-	case SW_IOCTL_VLAN_SWITCH_SYNC:
-		rtk_hal_vlan_switch_sync(ioctl_data);
-		break;
-
-	case SW_IOCTL_VLAN_SWITCH_UNSYNC:
-		rtk_hal_vlan_switch_unsync(ioctl_data);
 		break;
 
 	case SW_IOCTL_GET_PHY_STATUS:

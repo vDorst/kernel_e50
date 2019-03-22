@@ -24,12 +24,16 @@
 
 };
 
+&xhci {
+	status = "disabled";
+};
+
 &sdhci {
-	status = "okay";
+	status = "disabled";
 };
 
 &pcie {
-	status = "okay";
+	status = "disabled";
 };
 
 &ethernet {
@@ -92,22 +96,5 @@
 
 &i2c {
 	status = "okay";
-	gpio_i2c_25: pca9555@25 {
-		compatible = "nxp,pca9555";
-		reg = <0x25>;
-		status = "okay";
-		#gpio-cells = <2>;
-	};
 };
 
-&leds {
-        compatible = "gpio-leds";
-        pwr_blue {
-                gpios = <&gpio_i2c_25 16 GPIO_ACTIVE_HIGH>;
-                default-state = "on";
-        };
-        pwr_white {
-                gpios = <&gpio_i2c_25 13 GPIO_ACTIVE_HIGH>;
-                default-state = "off";
-        };
-};
