@@ -471,11 +471,7 @@ static int fq_codel_init(struct Qdisc *sch, struct nlattr *opt)
 
 	sch->limit = 10*1024;
 	q->flows_cnt = 1024;
-#ifdef CONFIG_X86_64
 	q->memory_limit = 32 << 20; /* 32 MBytes */
-#else
-	q->memory_limit = 4 << 20; /* 4 MBytes */
-#endif
 	q->drop_batch_size = 64;
 	q->quantum = psched_mtu(qdisc_dev(sch));
 	INIT_LIST_HEAD(&q->new_flows);
@@ -700,7 +696,7 @@ static const struct Qdisc_class_ops fq_codel_class_ops = {
 	.walk		=	fq_codel_walk,
 };
 
-struct Qdisc_ops fq_codel_qdisc_ops __read_mostly = {
+static struct Qdisc_ops fq_codel_qdisc_ops __read_mostly = {
 	.cl_ops		=	&fq_codel_class_ops,
 	.id		=	"fq_codel",
 	.priv_size	=	sizeof(struct fq_codel_sched_data),
@@ -715,7 +711,6 @@ struct Qdisc_ops fq_codel_qdisc_ops __read_mostly = {
 	.dump_stats =	fq_codel_dump_stats,
 	.owner		=	THIS_MODULE,
 };
-EXPORT_SYMBOL(fq_codel_qdisc_ops);
 
 static int __init fq_codel_module_init(void)
 {

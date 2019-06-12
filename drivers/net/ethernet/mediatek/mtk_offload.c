@@ -245,8 +245,12 @@ int mtk_flow_offload(struct mtk_eth *eth,
 	mtk_foe_set_mac(&reply, src->eth_src, src->eth_dest);
 	mtk_foe_write(eth, ohash, &orig);
 	mtk_foe_write(eth, rhash, &reply);
-	rcu_assign_pointer(eth->foe_flow_table[ohash], flow);
-	rcu_assign_pointer(eth->foe_flow_table[rhash], flow);
+	/*
+	 * HW offload handle entry table by itself.
+	 * No need to add entry to software flow table.
+	 */
+	//rcu_assign_pointer(eth->foe_flow_table[ohash], flow);
+	//rcu_assign_pointer(eth->foe_flow_table[rhash], flow);
 
 	return 0;
 }
@@ -602,15 +606,20 @@ void update_foe_ac_timer_handler(unsigned long unused)
 	extern int upd_eth_stats(int port, uint32_t rx_pkt, uint32_t rx_byte,
 		uint32_t rx_err, uint32_t rx_drop, uint32_t tx_pkt, uint32_t tx_byte,
 		uint32_t tx_err, uint32_t tx_drop);
+
 	memset((char *)ag_sum, 0, sizeof(ag_sum));
 	for (in = 0; in < AG_INPUT_NUM; in++) {
 		for (out = 0; out < AG_OUTPUT_NUM; out++) {
 			uint32_t pkt, byte;
 			int ag_idx = ag_map[in][out];
-			if (ag_idx == 0) continue;
+		
+			if (ag_idx == 0) 
+				continue;
+			
 			pkt = RegRead(AC_BASE + ag_idx * 16 + 8);
 			byte = RegRead(AC_BASE + ag_idx * 16); 
 			byte += ((unsigned long long)(RegRead(AC_BASE + ag_idx * 16 + 4)) << 32);
+			
 			// rx
 			ag_sum[in][0][0] += pkt;
 			ag_sum[in][0][1] += byte;
@@ -628,8 +637,8 @@ void update_foe_ac_timer_handler(unsigned long unused)
 			ag_sum[i][1][0], ag_sum[i][1][1], 0, 0);
 
 		//printk("%s-1: rx_pkt=%d, rx_byte=%d, tx_pkt=%d, tx_byte=%d\n", __func__, ag_sum[in][0][0], ag_sum[in][0][1], ag_sum[in][1][0], ag_sum[in][1][1]);
-	}	
-	
+	}
+
     update_foe_ac_timer.expires = jiffies + 2 * HZ;
     add_timer(&update_foe_ac_timer);
 }

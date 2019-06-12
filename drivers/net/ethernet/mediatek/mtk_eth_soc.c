@@ -77,6 +77,7 @@ extern u32 mii_mgr_write(u32 phy_addr, u32 phy_register, u32 write_data);
 extern struct mt7620_gsw *gsw_mt7621;
 extern u32 _mt7620_mii_read(struct mt7620_gsw * gsw, int phy_addr, int phy_reg);
 extern u32 _mt7620_mii_write(struct mt7620_gsw * gsw, u32 phy_addr, u32 phy_register, u32 write_data);
+int mt7621_is_switch0_member(u32 port);
 
 u32 switched_ports = 0;
 u8 vlan_aware_enabled = 0;
@@ -86,38 +87,6 @@ EXPORT_SYMBOL(vlan_aware_enabled);
 int upd_eth_stats(int port, u32 rx_pkt, u32 rx_byte, u32 rx_err, u32 rx_drop,
 	u32 tx_pkt, u32 tx_byte, u32 tx_err, u32 tx_drop)
 {
-	#if 0
-	struct net_device *dev;
-	struct fe_priv *priv;
-	struct fe_hw_stats *hwstats;
-
-	dev = dev_get_by_name(&init_net, "switch0");
-	
-	if(!dev)
-		return 0;
-	
-	priv = netdev_priv(dev);
-	hwstats = priv->hw_stats;
-
-	if (netif_running(dev) && netif_device_present(dev)) {
-		if (spin_trylock_bh(&hwstats->stats_lock)) {
-			struct fe_hw_stats *hwstats = priv->hw_stats;
-			
-			u64_stats_update_begin(&hwstats->syncp);
-			hwstats->rx_bytes += rx_byte;
-			hwstats->rx_packets += rx_pkt;
-			hwstats->tx_bytes += tx_byte;
-			hwstats->tx_packets += tx_pkt;
-			u64_stats_update_end(&hwstats->syncp);
-			//fe_stats_update(priv);
-			spin_unlock_bh(&hwstats->stats_lock);
-		}
-	}
-
-	//printk(KERN_ERR "%s: switched_ports = %d\nport_stats.rx_bytes = %d, port_stats.rx_packets = %d\nport_stats.tx_bytes = %d, port_stats.tx_packets = %d\n\n", __func__, switched_ports, port_stats.rx_bytes, port_stats.rx_packets, port_stats.tx_bytes);
-
-	return 0;
-	#else
 	struct net_device *dev;
 	char ifname[8] = {0};
 	struct vlan_pcpu_stats *stats;
@@ -140,7 +109,6 @@ int upd_eth_stats(int port, u32 rx_pkt, u32 rx_byte, u32 rx_err, u32 rx_drop,
 	dev_put(dev);
 
 	return 0;
-	#endif
 }
 EXPORT_SYMBOL(upd_eth_stats);
 
